@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-
+using System.Linq;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,79 +10,77 @@ namespace Sat.Recruitment.Api.Controllers
 {
     public class Result
     {
+        public Result()
+        {
+            IsSuccess = false;
+            Errors = "Ocurrio un error";
+        }
         public bool IsSuccess { get; set; }
         public string Errors { get; set; }
     }
 
     [ApiController]
-    [Route("[controller]")]
+    [Route("v1/[controller]")]
     public partial class UsersController : ControllerBase
     {
-
+        Result _result = new Result();
+        private readonly IUtileria _utileria;
         private readonly List<User> _users = new List<User>();
-        public UsersController()
+        public UsersController(IUtileria utileria)
         {
+            _utileria = utileria;
         }
 
         [HttpPost]
         [Route("/create-user")]
-        public async Task<Result> CreateUser(string name, string email, string address, string phone, string userType, string money)
+        public async Task<Result> CreateUser(User _user)
         {
+            await Task.Delay(1);
             var errors = "";
 
-            ValidateErrors(name, email, address, phone, ref errors);
-
-            if (errors != null && errors != "")
-                return new Result()
-                {
-                    IsSuccess = false,
-                    Errors = errors
-                };
-
-            var newUser = new User
+          _utileria.ValidateErrors(_user, ref errors);
+            _result.Errors = errors;
+            
+            if (!string.IsNullOrWhiteSpace(errors))
             {
-                Name = name,
-                Email = email,
-                Address = address,
-                Phone = phone,
-                UserType = userType,
-                Money = decimal.Parse(money)
-            };
+                return _result;
+            }
+            User newUser = _user;
 
             if (newUser.UserType == "Normal")
             {
-                if (decimal.Parse(money) > 100)
+                if (_user.Money > 100)
                 {
                     var percentage = Convert.ToDecimal(0.12);
                     //If new user is normal and has more than USD100
-                    var gif = decimal.Parse(money) * percentage;
+                    var gif = _user.Money * percentage;
                     newUser.Money = newUser.Money + gif;
                 }
-                if (decimal.Parse(money) < 100)
+                if (_user.Money < 100)
                 {
-                    if (decimal.Parse(money) > 10)
+                    if (_user.Money > 10)
                     {
                         var percentage = Convert.ToDecimal(0.8);
-                        var gif = decimal.Parse(money) * percentage;
-                        newUser.Money = newUser.Money + gif;
+                        var gif = _user.Money * percentage;
+                        newUser.Money += gif;
                     }
                 }
             }
             if (newUser.UserType == "SuperUser")
             {
-                if (decimal.Parse(money) > 100)
+                if (_user.Money > 100)
                 {
                     var percentage = Convert.ToDecimal(0.20);
-                    var gif = decimal.Parse(money) * percentage;
-                    newUser.Money = newUser.Money + gif;
+                    var gif = _user.Money * percentage;
+                    newUser.Money += gif;
                 }
             }
             if (newUser.UserType == "Premium")
             {
-                if (decimal.Parse(money) > 100)
+                if (_user.Money > 100)
                 {
-                    var gif = decimal.Parse(money) * 2;
-                    newUser.Money = newUser.Money + gif;
+                    var gif = _user.Money * 2;
+                    newUser.Money += gif;
                 }
             }
 
@@ -101,102 +99,84 @@ namespace Sat.Recruitment.Api.Controllers
             while (reader.Peek() >= 0)
             {
                 var line = reader.ReadLineAsync().Result;
-                var user = new User
+                string[] cadena = line.Split(',');
+                _users.Add(new User
                 {
-                    Name = line.Split(',')[0].ToString(),
-                    Email = line.Split(',')[1].ToString(),
-                    Phone = line.Split(',')[2].ToString(),
-                    Address = line.Split(',')[3].ToString(),
-                    UserType = line.Split(',')[4].ToString(),
-                    Money = decimal.Parse(line.Split(',')[5].ToString()),
-                };
-                _users.Add(user);
+
+                    Name = cadena[0],
+                    Email = cadena[1],
+                    Phone = cadena[2],
+                    Address = cadena[3],
+                    UserType = cadena[4],
+                    Money = decimal.Parse(cadena[5]),
+                });
             }
             reader.Close();
             try
             {
-                var isDuplicated = false;
-                foreach (var user in _users)
+                var isDuplicated = _users.FirstOrDefault(U => U.Email.Equals(newUser.Email) || U.Phone.Equals(newUser.Phone)
+                || U.Name.Equals(newUser.Name) || U.Address.Equals(newUser.Address))!=null;
+                if (isDuplicated)
                 {
-                    if (user.Email == newUser.Email
-                        ||
-                        user.Phone == newUser.Phone)
-                    {
-                        isDuplicated = true;
-                    }
-                    else if (user.Name == newUser.Name)
-                    {
-                        if (user.Address == newUser.Address)
-                        {
-                            isDuplicated = true;
-                            throw new Exception("User is duplicated");
-                        }
-
-                    }
+                    throw new Exception("User is duplicated");
                 }
 
                 if (!isDuplicated)
                 {
                     Debug.WriteLine("User Created");
-
-                    return new Result()
-                    {
-                        IsSuccess = true,
-                        Errors = "User Created"
-                    };
+                    _result.IsSuccess = true;
+                    _result.Errors = "User Created";
+                    return _result;
                 }
                 else
                 {
                     Debug.WriteLine("The user is duplicated");
-
-                    return new Result()
-                    {
-                        IsSuccess = false,
-                        Errors = "The user is duplicated"
-                    };
+                    _result.Errors = "The user is duplicated";
+                    return _result;
                 }
             }
             catch
             {
                 Debug.WriteLine("The user is duplicated");
-                return new Result()
-                {
-                    IsSuccess = false,
-                    Errors = "The user is duplicated"
-                };
+                _result.Errors = "The user is duplicated";
+                return _result;
             }
 
-            return new Result()
-            {
-                IsSuccess = true,
-                Errors = "User Created"
-            };
         }
 
         //Validate errors
-        private void ValidateErrors(string name, string email, string address, string phone, ref string errors)
-        {
-            if (name == null)
-                //Validate if Name is null
-                errors = "The name is required";
-            if (email == null)
-                //Validate if Email is null
-                errors = errors + " The email is required";
-            if (address == null)
-                //Validate if Address is null
-                errors = errors + " The address is required";
-            if (phone == null)
-                //Validate if Phone is null
-                errors = errors + " The phone is required";
-        }
+        //private void ValidateErrors(User user, ref string errors)
+        //{
+
+        //    if (user.Name == null)
+        //    {
+        //        //Validate if Name is null
+        //        errors = "The name is required";
+        //    }
+        //    if (user.Email == null)
+        //    {
+        //        //Validate if Email is null
+        //        errors += " The email is required";
+        //    }
+        //    if (user.Address == null)
+        //    {
+        //        //Validate if Address is null
+        //        errors += " The address is required";
+        //    }
+        //    if (user.Phone == null)
+        //    {
+        //        //Validate if Phone is null
+        //        errors += " The phone is required";
+        //    }
+        //}
     }
-    public class User
-    {
-        public string Name { get; set; }
-        public string Email { get; set; }
-        public string Address { get; set; }
-        public string Phone { get; set; }
-        public string UserType { get; set; }
-        public decimal Money { get; set; }
-    }
+    //public class User
+    //{
+    //    public string Name { get; set; }
+    //    public string Email { get; set; }
+    //    public string Address { get; set; }
+    //    public string Phone { get; set; }
+    //    public string UserType { get; set; }
+    //    public decimal Money { get; set; }
+    //}
 }
